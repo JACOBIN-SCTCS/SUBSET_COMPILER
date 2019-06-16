@@ -125,26 +125,109 @@
 
 %%
 
+		/*
+			Below are the rules for the context free grammar which has been used to create the parser
+			A Rule of the form A -> BC   is written in bison as
+
+			A : BC  { <ACTION>   }
+		
+			start is the nonterminal used  to denote start symbol 
+			Each nonterminal has a return type which has been mentioned above 
+			
+			$ is used for accessing values from nonterminals and terminals in the production
+			Suppose
+				A : print  B C D
+
+			The values of each token or non terminal is accessed  like
+                           	A  <----> $$
+				B  <----> $2
+				C  <----> $3
+				D  <----> $4
+			The counter is incremented for each symbol encountered in the production 
+			
+		*/
+	
+		/*
+
+			Sample examples illustrating working 
+
+			example 1 
+			________________
+			start : print exp ';' { 
+                                       	        printf("Printing: %d\n",$2);
+                                                sprintf(buffer,"%s := %d;\nprint %s;\n",reg[0],$2,reg[0]); fprintf(yyout,"%s\n" , buffer);
+                                              }
+
+			here $1 refers to print $2 refers to exp  and $3 refers to semicolon
+			exp is declared to be of type no which is an int inferred from %union{....} 
+			So we can print
+
+			INTERMEDIATE CODES ARE GENERATED USING SPRINTF() WHICH WRITES INTO A BUFFER 
+			WHICH IS WRITTEN TO THE OUTPUT FILE USING FPRINTF
+
+
+			example 2
+			______________
+
+
+			condn :  IF '(' exp ')' '{' statement '}'
+                                {
+                                        sprintf(buffer,"IF NZ GO TO %dLABEL:"
+                                                       "\n%s%dLABEL:" ,
+
+                                                       label_count,$6 , label_count);
+                                         strcpy($$,buffer);
+                                         ++label_count;
+                                }
+
+			 here strcpy($$, buffer );   would copy the code to the head condn 
+			 so that it could be used in another production  like 
+
+			 while(condn) {  ..... }   we can generate intermediate code of condn
+							followed by code for while 
+			
+
+			Some Sample codes for intermediate representation is present in README.md file
+
+
+		*/
+
+		
+
+
 
 start	: EXIT ';'		{	exit(0);	}
 	| print exp ';'		{ 
 					printf("Printing: %d\n",$2);
-					sprintf(buffer,"%s := %d;\nprint %s;\n",reg[0],$2,reg[0]); fprintf(yyout,"%s\n" , buffer);
+					sprintf(buffer,"%s := %d;"
+						       "\nprint %s;\n" ,
+						reg[0],$2,reg[0]);
+					fprintf(yyout,"%s\n" , buffer);
 				}
 	| start print exp ';'   { 
 					printf("Printing: %d\n",$3); 
-					sprintf(buffer,"%s := %d;\nprint %s;\n",reg[0],$3,reg[0]);
+					sprintf(buffer,"%s := %d;"
+						       "\nprint %s;\n" ,
+						reg[0],$3,reg[0]);
+
 					fprintf(yyout,"%s\n" , buffer); 
 				}
 	|  id '=' exp ';' 	{ 
 					 {installid($1,$3);}
-					 sprintf(buffer,"%s := %d;\n %s := %s;\n",reg[0],$3,$1,reg[0]);
+					
+					 sprintf(buffer,"%s := %d;"
+							"\n %s := %s;\n" ,
+							reg[0],$3,$1,reg[0]);
+
 					 fprintf(yyout,"%s\n" , buffer); 
 				}
 
 	| start  id '=' exp ';' { 
 					 {installid($2,$4);} 
-					 sprintf(buffer,"%s := %d;\n %s := %s;\n",reg[0],$4,$2,reg[0]);
+					 sprintf(buffer,"%s := %d;"
+							"\n %s := %s;\n" ,
+							reg[0],$4,$2,reg[0]);
+
 					 fprintf(yyout,"%s\n" , buffer);
 				}
 
@@ -225,6 +308,9 @@ start	: EXIT ';'		{	exit(0);	}
         			;
 
 
+	
+		/*  <-------- DO-WHILE LOOP -----------------------> */ 
+
 do_while : DO '{' statement '}' WHILE '(' exp ')' ';' 
 	 			{	
 
@@ -285,6 +371,10 @@ condexp : '(' exp ')' '?' '(' id '=' exp ')' ':' '(' id '=' exp ')' ';'
 				;
 	
 
+
+
+			/*<------ FUNCTION DEFINITION ---------> */
+
 function_def : DEF procid '(' params ')' '{' statement '}' 
 	     			{
 	
@@ -317,6 +407,11 @@ function_def : DEF procid '(' params ')' '{' statement '}'
 	 				strcpy($$,buffer);
 	  				installfunction($2,parameter_count,1);
 	 			 }
+
+
+
+		/* <--------------- FUNCTION CALL  ------------------->  */
+
 
 
 function_call : procid '(' params ')' ';'	
@@ -372,6 +467,8 @@ function_call : procid '(' params ')' ';'
 
 
 
+		/* <-------------- FOR PARAMETERS (USED ALONG WITH FUCNTION )------------------->*/
+
 params : %empty 		{ 
        					strcpy($$," ");
 					parameter_count=0;
@@ -390,6 +487,9 @@ params : %empty 		{
 				}
 				;
 
+
+		/* <---------------- WHILE STATEMENT ---------------------------->   */
+
 while_statement : WHILE '(' exp ')' '{' statement '}' 
 				{ 
 					 sprintf(buffer,"%d_LABEL : IF NZ GOTO %d_LABEL"
@@ -403,6 +503,8 @@ while_statement : WHILE '(' exp ')' '{' statement '}'
 					 ++label_count;
 				}
 
+
+		/* <----------------- IF AND IF-ELSE CONSTRUCT ------------->  */
 condn :  IF '(' exp ')' '{' statement '}'
      				{ 
 					sprintf(buffer,"IF NZ GO TO %dLABEL:"
@@ -429,7 +531,7 @@ condn :  IF '(' exp ')' '{' statement '}'
 
 
 
-
+		/* <-------------MACRO ------------------> */
 macro : HASHDEF id num
      			        { 
       				         {installid($2,$3);} 
@@ -441,6 +543,8 @@ macro : HASHDEF id num
 					 strcpy($$,buffer);
 				 }
 
+
+		/* <------------ MACRO DEFINITION ------------> */
 macro_def : HASHDEF procid '(' params ')' '{' statement '}'
 	 			 {
 	
@@ -460,6 +564,7 @@ macro_def : HASHDEF procid '(' params ')' '{' statement '}'
 		
 	 			 }
 
+		/* <-------------MACRO CALL -------------------> */
 macro_call : procid  '{' params '}'  ';'
    		         	 {
 
@@ -480,6 +585,8 @@ macro_call : procid  '{' params '}'  ';'
 				}
 
 
+		/*<----------- STATEMENTS ---------------------> */
+
 statement : assignment statement 
 	  			{ 
 					 strcat($1,$2);
@@ -495,9 +602,16 @@ statement : assignment statement
 
 
 
+		/* <------------- PRINT STATEMENT -------------> */
+
 print_statement : print exp ';' {  sprintf(buffer,"%s := %d;\nprint %s;\n",reg[0],$2,reg[0]); strcpy($$,buffer);  }
+
+		/* <------------ ASSIGNMENT STATEMENT ---------> */
+
 assignment : id '=' exp ';' { {installid($1,$3);} sprintf(buffer,"%s := %d;\n%s := %s;\n",reg[0],$3,$1,reg[0]); strcpy($$,buffer); }
 
+
+		/*<-------------- EXPRESSION -----------> */
 exp    	: term                 { {$$ = $1;}                    /*fprintf(yyout,"%s := %d;\n ",reg[0],$1);*/ ; } 
        	| exp '+' exp          { {$$ = $1 + $3;}               /*fprintf(yyout,"%s := %d + %d;\n ",reg[0],$1,$3);*/ ; } 
        	| exp '-' exp          { {$$ = $1 - $3;}               /*fprintf(yyout,"%s := %d - %d;\n ",reg[0],$1,$3);*/ ; }
@@ -516,10 +630,12 @@ exp    	: term                 { {$$ = $1;}                    /*fprintf(yyout,"
 	;
 
 
+		/*<------------- TERMS ----------> */
 term   	: num                {$$ = $1;}
 	|id			{$$=getid($1);}
 ;
 
+		/* <------- FUNCTION NAME IDENTIFIER ----------> */
 procid : id
       	 {
       		 strcpy($$,$1);
@@ -527,6 +643,14 @@ procid : id
 
 %%
 
+
+			/*         END OF RULES SECTION		 */
+
+
+
+
+
+	/*  FOR PERFORMING RELATIONAL OPERATIONS */
 
 int relop(int a , int b ,int op)
 {
@@ -544,6 +668,7 @@ int relop(int a , int b ,int op)
 }
 
 
+	/* FOR DISPLAYING THE SYMBOL TABLE */
 
 void dis()
 {
@@ -558,6 +683,10 @@ void dis()
 
 
 
+
+	/* INSTALLING FUCNTION IN THE FUNCTION TABLE */
+
+
 void installfunction(char str[],int x,int y)
 {
 	strcpy(function_table[function_table_count].name , str);
@@ -566,6 +695,9 @@ void installfunction(char str[],int x,int y)
 	++function_table_count;	
 }
 
+
+
+	/* FOR SEARCHING IN THE FUNCTION TABLE */
 
 
 int search_function(char str[])
@@ -582,6 +714,8 @@ int search_function(char str[])
 }
 
 
+	/* FOR INSERTING INTO THE MACRO TABLE */
+
 void installmacro(char str[],int x)
 {
 	strcpy(macro_table[macro_table_count].name , str);
@@ -590,6 +724,8 @@ void installmacro(char str[],int x)
 }
 
 
+
+	/* FOR SEARCHING THE MACRO IN THE MACRO TABLE */ 
 
 int search_macro(char str[])
 {
@@ -607,6 +743,7 @@ int search_macro(char str[])
 
 
 
+	/*  FOR INSERTING VALUE INTO THE SYMBOL TABLE   */
 void installid(char str[],int n)
 {
 	int index,i;
@@ -635,6 +772,7 @@ void installid(char str[],int n)
 }
 
 
+	/*  For Obtaining the values from identifiers */ 
 int getid(char str[])
 {
 	int index,i;
@@ -666,15 +804,21 @@ int getid(char str[])
 
 
 
+	/*  	Error  		*/
+
 void yyerror (char *s) 
 {
 	fprintf (stdout, "%s\n", s);
 } 
 
+
 int main()
 {
 
 	int i;
+
+
+	/*  Initialising the Symbol Table */
 
  	for(i=0;i<53;i++)
 	{
@@ -683,17 +827,20 @@ int main()
 	}
 
 	yyout = fopen("output.txt","a");
-/* if(yyout==NULL)
-{
-	printf("error!!");
-}
-else
-{
-	printf("file opened");
-} */
+	
+	/* if(yyout==NULL)
+	{
+		printf("error!!");
+	}
+	else
+	{
+		printf("file opened");
+	} */
 
-//fprintf(yyout,"%s",reg[0]);
-//fprintf("\n%s",ftell(yyout));
+
+	//fprintf(yyout,"%s",reg[0]);
+	//fprintf("\n%s",ftell(yyout));
+
 
  	return yyparse();
 
