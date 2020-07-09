@@ -5,7 +5,7 @@
 
 	void yyerror(char *s);
 
-
+	int temp_variable_count=0;
 	int label_count=0;                 /* Used for the creation of unique labels */
 	int parameter_count;	           /* Used to track number of parameters of function read */
 	int function_table_count=0;	   /* Holds the size of the function table */
@@ -30,7 +30,7 @@
 
 
 	 
-	char reg[7][10]={"t1","t2","t3","t4","t5","t6"};   /* Temporaries for holding values for IR Code */
+	char reg[7][10]={"R1","R2","R3","R4","R5","R6"};   /* Temporaries for holding values for IR Code */
 
 
 	extern FILE *yyout;  		/* Pointer to the output file */
@@ -54,7 +54,9 @@
 		int returns;
 	} function_table[53];
 
+
 	
+
 	/* Macro table for holding macros */
 	struct macro_tab
 	{
@@ -67,12 +69,23 @@
 
 %}
 
+%code requires {
 
+	struct expression
+	{
+		char code[100];
+		char var[10];
+		int singleton;
+		
+	};
+
+}
 
 %union{
 	int no;
 	char var[10];
-	char code[100];
+	char code[200];
+	struct expression expr;
       }
 
 	/* 
@@ -98,12 +111,14 @@
 
 
 	%token <var> id  
-	%token <no> num 
+	%token <var> num 
 	%type<var> procid 
 	%type <code>condn assignment statement while_statement print_statement
 	%type <code> function_def params function_call do_while macro macro_def macro_call
 	%token print EXIT IF ELSE ptable WHILE DEF comma HASHDEF	RETURN DO
-	%type <no>  start exp  term 
+	%type<expr> exp
+	%type<var>  term
+	%type <no>  start
 
 
 
@@ -198,37 +213,86 @@
 
 start	: EXIT ';'		{	exit(0);	}
 	| print exp ';'		{ 
-					printf("Printing: %d\n",$2);
-					sprintf(buffer,"%s := %d;"
-						       "\nprint %s;\n" ,
-						reg[0],$2,reg[0]);
-					fprintf(yyout,"%s\n" , buffer);
+					/*printf("Printing: %d\n",$2);*/
+					if($2.singleton)
+					{
+						sprintf(buffer,"\n%s := %s;"
+							       "\nprint %s;\n" ,
+							reg[0],$2.var,reg[0]);
+						fprintf(yyout,"%s\n" , buffer);
+					}
+					else
+					{
+						sprintf(buffer,"%s"
+							       "\n%s := %s;"
+							       "\nprint %s;\n" ,
+							$2.code,reg[0],$2.var,reg[0]);
+						fprintf(yyout,"%s\n" , buffer);
+					}
 				}
 	| start print exp ';'   { 
-					printf("Printing: %d\n",$3); 
-					sprintf(buffer,"%s := %d;"
-						       "\nprint %s;\n" ,
-						reg[0],$3,reg[0]);
+					
+					/*printf("Printing: %d\n",$3);*/ 
 
-					fprintf(yyout,"%s\n" , buffer); 
+					if($3.singleton)
+					{
+						sprintf(buffer,"%s := %s;"
+							       "\nprint %s;\n" ,
+							reg[0],$3.var,reg[0]);
+
+						fprintf(yyout,"%s\n" , buffer); 
+					}
+					else
+					{
+						sprintf(buffer,"%s"
+							       "%s := %s;"
+							       "\nprint %s;\n" ,
+							$3.code,reg[0],$3.var,reg[0]);
+
+						fprintf(yyout,"%s\n" , buffer); 
+					}
 				}
 	|  id '=' exp ';' 	{ 
-					 {installid($1,$3);}
-					
-					 sprintf(buffer,"%s := %d;"
-							"\n %s := %s;\n" ,
-							reg[0],$3,$1,reg[0]);
+					 /*{installid($1,$3);}*/
+					if($3.singleton)
+					{
+						sprintf(buffer, "\n%s := %s;"
+								"\n%s := %s;\n" ,
+								reg[0],$3.var,$1,reg[0]);
 
-					 fprintf(yyout,"%s\n" , buffer); 
+						 fprintf(yyout,"%s\n" , buffer); 
+					}
+					else
+					{
+						 sprintf(buffer, "%s"
+								"\n%s := %s;"
+								"\n%s := %s;\n" ,
+								$3.code ,reg[0],$3.var,$1,reg[0]);
+
+						 fprintf(yyout,"%s\n" , buffer); 
+					}
 				}
 
 	| start  id '=' exp ';' { 
-					 {installid($2,$4);} 
-					 sprintf(buffer,"%s := %d;"
-							"\n %s := %s;\n" ,
-							reg[0],$4,$2,reg[0]);
+					 /*{installid($2,$4);}*/ 
 
-					 fprintf(yyout,"%s\n" , buffer);
+					if($4.singleton)
+					{		
+						sprintf(buffer,"\n%s := %s;"
+								"\n%s := %s;\n" ,
+								 reg[0],$4.var,$2,reg[0]);
+
+						 fprintf(yyout,"%s\n" , buffer);
+					}
+					else
+					{			 
+						sprintf(buffer,"%s"
+								"\n%s := %s;"
+								"\n%s := %s;\n" ,
+								$4.code,reg[0],$4.var,$2,reg[0]);
+
+						 fprintf(yyout,"%s\n" , buffer);
+					}
 				}
 
 	| condn			{ 
@@ -314,14 +378,17 @@ start	: EXIT ';'		{	exit(0);	}
 do_while : DO '{' statement '}' WHILE '(' exp ')' ';' 
 	 			{	
 
-					  sprintf(buffer, "\n%d_LABEL:\n%s\n if nz goto %d_LABEL\n",label_count,$3,label_count);
+					  sprintf(buffer, "\n%d_LABEL:\n%s\n"
+							  "%s\n"
+							  "%s := %s\n"
+							  "if nz goto %d_LABEL\n",label_count,$3,$7.code,reg[0],$7.var,label_count);
 					  label_count+=1;
 					  strcpy($$,buffer);
 				}
 
 condexp : '(' exp ')' '?' '(' id '=' exp ')' ':' '(' id '=' exp ')' ';'         
 				{
-       					  if($2>0)
+       					  /*if($2>0)
 					  {
 						installid($6,$8);
 					  }
@@ -329,42 +396,52 @@ condexp : '(' exp ')' '?' '(' id '=' exp ')' ':' '(' id '=' exp ')' ';'
 					  { 
 						installid($12,$14);
 					  } 
-					  fprintf(yyout,"if z %s goto %d_LABEL:;" 
-							"\n%s := %d;"
+					  */
+
+					  fprintf(yyout,"%s\n%s := %s"
+							"\nif z %s goto %d_LABEL:;" 
+							"\n%s"
+							"\n%s := %s;"
 							"\n%s := %s;"
 							"\n goto %d_LABEL:"
 							"\n %d_LABEL :"
-							"\n %s := %d;"
+							"\n%s"
+							"\n%s := %s;"
 							"\n%s := %s;"
 							"\n%d_LABEL:\n" ,
-						reg[0],label_count,reg[1],
-						$8,$6,reg[1],(label_count+1),label_count,reg[2],
-						$14,$12,reg[2],(label_count+1)); ; 
+						$2.code,reg[0],$2.var,reg[0],label_count,$8.code,reg[1],
+						$8.var,$6,reg[1],(label_count+1),label_count,$14.code,reg[2],
+						$14.var,$12,reg[2],(label_count+1)); ; 
 
 					 label_count+=2; 
 				}
 
         | '(' exp ')' '?' '(' print exp ')' ':' '(' print exp ')' ';'  
 				{ 
-					 if($2>0)
+					 /*if($2>0)
 					 {
 						printf("Printing: %d\n",$7);
 					 }
 					 else
 					 {
 						printf("Printing: %d\n",$12);
-					 }    
-					 fprintf(yyout,"if z %s goto %d_LABEL:"
-							"\n%s := %d;"
+					 } */
+
+   
+					 fprintf(yyout, "%s\n%s := %s"
+							"\nif z %s goto %d_LABEL:"
+							"\n%s"
+							"\n%s := %s;"
 							"\nprint %s;"
 							"\ngoto %d_LABEL: "
 							"\n%d_LABEL : "
-							"\n%s := %d;"
+							"\n%s"
+							"\n%s := %s;"
 							"\nprint %s;"
 							"\n%d_LABEL:\n" ,
-						 reg[0],label_count,reg[1],$7,
-						 reg[1],(label_count+1),label_count,
-						 reg[2],$12,reg[2],(label_count+1));;
+						 $2.code,reg[0],$2.var,reg[0],label_count,$7.code,reg[1],$7.var,
+						 reg[1],(label_count+1),label_count,$12.code,
+						 reg[2],$12.var,reg[2],(label_count+1));
 					 label_count+=2;
 				 }
 
@@ -386,8 +463,8 @@ function_def : DEF procid '(' params ')' '{' statement '}'
 	  
 
 					sprintf(buffer,"PROCEDURE %s  %s"
-						       " \n %s "
-						       "\n ENDP",
+						       "\n%s "
+						       "\nENDP",
 
 						       $2,$4,$7);
 	  			        strcpy($$,buffer);
@@ -492,11 +569,12 @@ params : %empty 		{
 
 while_statement : WHILE '(' exp ')' '{' statement '}' 
 				{ 
-					 sprintf(buffer,"%d_LABEL : IF NZ GOTO %d_LABEL"
-							"\n %s\n JMP %d_LABEL"
-							"\n %d_LABEL:\n" ,
+					 sprintf(buffer, "%d_LABEL : %s\n%s := %s"
+							"\nIF NZ GOTO %d_LABEL"
+							"\n%s\nJMP %d_LABEL"
+							"\n%d_LABEL:\n" ,
 					
-							label_count,(label_count+1) ,$6,
+							label_count,$3.code,reg[0],$3.var,(label_count+1) ,$6,
 							label_count,(label_count+1));
 					 strcpy($$,buffer);
 					 ++label_count;
@@ -507,21 +585,23 @@ while_statement : WHILE '(' exp ')' '{' statement '}'
 		/* <----------------- IF AND IF-ELSE CONSTRUCT ------------->  */
 condn :  IF '(' exp ')' '{' statement '}'
      				{ 
-					sprintf(buffer,"IF NZ GO TO %dLABEL:"
+					sprintf(buffer,"%s\n%s := %s"
+						       "\nIF NZ GO TO %dLABEL:"
 						       "\n%s%dLABEL:" ,
 			
-						       label_count,$6 , label_count);
+						       $3.code,reg[0],$3.var,label_count,$6 , label_count);
 					 strcpy($$,buffer); 
 					 ++label_count;
 				}
 	  |	 IF '(' exp ')'  '{' statement '}' ELSE '{' statement '}'
 			        { 
-				        sprintf(buffer,"IF NZ GO TO %d_LABEL:"
-						       "\n %s "
+				        sprintf(buffer,"%s\n%s := %s"
+						       "\n IF NZ GO TO %d_LABEL:"
+						       "\n%s "
 						       "\n JMP %d_LABEL "
 						       "\n %d_LABEL:%s"
 						       "\n%d_LABEL" ,
-						  label_count,$6 , (label_count+1) ,
+						  $3.code,reg[0],$3.var,label_count,$6 , (label_count+1) ,
 						  label_count,$10,(label_count+1));
 					 strcpy($$,buffer);
 					 ++label_count; 
@@ -534,7 +614,7 @@ condn :  IF '(' exp ')' '{' statement '}'
 		/* <-------------MACRO ------------------> */
 macro : HASHDEF id num
      			        { 
-      				         {installid($2,$3);} 
+      				         /*{installid($2,$3);} */
 					 sprintf(buffer,"%s := %d;"
 							"\n%s := %s;\n" ,
 						
@@ -556,7 +636,7 @@ macro_def : HASHDEF procid '(' params ')' '{' statement '}'
 	  
 
 					sprintf(buffer,"MACRO %s  %s"
-						       " \n %s"
+						       " \n%s"
 						       "\nMEND" ,
 						      $2,$4,$7);
 	 				strcpy($$,buffer);
@@ -587,12 +667,12 @@ macro_call : procid  '{' params '}'  ';'
 
 		/*<----------- STATEMENTS ---------------------> */
 
-statement : assignment statement 
+statement :  assignment statement 
 	  			{ 
 					 strcat($1,$2);
 					 strcpy($$,$1);
 			        }
-			| print_statement statement {  strcat($1,$2);  strcpy($$,$1); }
+			| print_statement statement   {  {strcat($1,$2);  strcpy($$,$1);} }
 			|	assignment		{ { strcpy($$,$1); } }
 			| print_statement { {strcpy($$,$1);} }
 			| condn statement {  strcat($1,$2); strcpy($$,$1); }
@@ -604,35 +684,529 @@ statement : assignment statement
 
 		/* <------------- PRINT STATEMENT -------------> */
 
-print_statement : print exp ';' {  sprintf(buffer,"%s := %d;\nprint %s;\n",reg[0],$2,reg[0]); strcpy($$,buffer);  }
+print_statement : print exp ';' {  
+					 if($2.singleton==1)
+					 {
+						sprintf(buffer,"\n%s := %s;\nprint %s;\n",reg[0],$2.var,reg[0]); strcpy($$,buffer); 
+					 }
+					 else
+					 {					
+				   		sprintf(buffer,"\n%s := %s;\nprint %s;\n",reg[0],$2.var,reg[0]); strcpy($$,buffer); 
+					 }
+				}
 
 		/* <------------ ASSIGNMENT STATEMENT ---------> */
 
-assignment : id '=' exp ';' { {installid($1,$3);} sprintf(buffer,"%s := %d;\n%s := %s;\n",reg[0],$3,$1,reg[0]); strcpy($$,buffer); }
+assignment : id '=' exp ';' { 		/*{installid($1,$3);}*/ 
+				
+				if($3.singleton==1)
+				{
+					sprintf(buffer,"\n%s := %s;\n%s := %s;\n",reg[0],$3.var,$1,reg[0]); strcpy($$,buffer);
+				}
+				else
+				{
+					sprintf(buffer,"%s\n%s := %s;\n%s := %s;\n",$3.code,reg[0],$3.var,$1,reg[0]); strcpy($$,buffer);
+				}
+			   }
+			   
 
 
 		/*<-------------- EXPRESSION -----------> */
-exp    	: term                 { {$$ = $1;}                    /*fprintf(yyout,"%s := %d;\n ",reg[0],$1);*/ ; } 
-       	| exp '+' exp          { {$$ = $1 + $3;}               /*fprintf(yyout,"%s := %d + %d;\n ",reg[0],$1,$3);*/ ; } 
-       	| exp '-' exp          { {$$ = $1 - $3;}               /*fprintf(yyout,"%s := %d - %d;\n ",reg[0],$1,$3);*/ ; }
-	| exp '*' exp	       { {$$ = $1 * $3;}               /*fprintf(yyout,"%s := %d * %d;\n ",reg[0],$1,$3);*/ ; }
-	| exp '/' exp	       { {$$ = $1 / $3;}               /*fprintf(yyout,"%s := %d / %d;\n ",reg[0],$1,$3);*/ ; }
-	| exp '%'exp		{ {$$= $1 % $3;}}	
-	| exp '>' exp		{ {$$ =relop($1,$3,1);}        /*fprintf(yyout,"%s := %c > %d;\n ",reg[0],$1,$3); */; } 
-	| exp '<' exp		{ {$$ =relop($1,$3,2);}        /*fprintf(yyout,"%s := %c < %d;\n ",reg[0],$1,$3); */; }
-	| exp eq exp		{ {$$ =relop($1,$3,3);}        /*fprintf(yyout,"%s := %c eq %d;\n ",reg[0],$1,$3); */;}
-	| exp ne exp		{ {$$ =relop($1,$3,4);}	       /*fprintf(yyout,"%s := %c neq %d;\n ",reg[0],$1,$3); */;}
-	| exp ge exp		{ {$$ =relop($1,$3,5);}	       /*fprintf(yyout,"%s := %c ge %d;\n ",reg[0],$1,$3); */;}
-	| exp le exp		{ {$$ =relop($1,$3,6);}        /*fprintf(yyout,"%s := %c le %d;\n ",reg[0],$1,$3); */;}
-	| '(' exp ')'		{ {$$ = $2;}                   /*fprintf(yyout,"%s := %d;\n ",reg[0],$2); */;}
-	| exp and exp		{ {$$ =relop($1,$3,7);}        /*fprintf(yyout,"%s := %c and %d;\n ",reg[0],$1,$3);*/ ;}
-	| exp or exp		{ {$$ =relop($1,$3,8);}        /*fprintf(yyout,"%s := %c or %d;\n ",reg[0],$1,$3);*/ ;}
+exp    	: term                 {    $$.singleton = 1; strcpy($$.code,$1);             strcpy($$.var,$1);        /*fprintf(yyout,"%s := %d;\n ",reg[0],$1);*/ ; } 
+       	| exp '+' exp          {  
+					
+
+					/*{$$ = $1 + $3;}*/               /*fprintf(yyout,"%s := %d + %d;\n ",reg[0],$1,$3);*/ 
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s + %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s + %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s + %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s + %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+					
+
+			       } 
+       	
+	| exp '-' exp          { 
+					
+				 	if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s - %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s - %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s - %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s - %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+				
+					/*{$$ = $1 - $3;}  */             /*fprintf(yyout,"%s := %d - %d;\n ",reg[0],$1,$3);*/ ;
+
+
+			       }
+	| exp '*' exp	       {
+					 /*{$$ = $1 * $3;}*/
+			                /*fprintf(yyout,"%s := %d * %d;\n ",reg[0],$1,$3);*/ ;
+
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s * %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s * %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s * %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s * %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+			       }
+	| exp '/' exp	       { 
+					 /*{$$ = $1 / $3;}*/               /*fprintf(yyout,"%s := %d / %d;\n ",reg[0],$1,$3);*/ ;
+
+					
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s / %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s / %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s / %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s / %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+
+			       }
+	| exp '%'exp	       {
+					/*{$$= $1 % $3;}*/
+					
+				 	
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s \% %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s \% %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s \% %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s \% %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+			       }	
+	| exp '>' exp	       {
+					 /*{$$ =relop($1,$3,1);}*/        /*fprintf(yyout,"%s := %c > %d;\n ",reg[0],$1,$3); */;
+
+				 	
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s > %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s > %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s > %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s > %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+			       } 
+	| exp '<' exp	       {
+
+					 /*{$$ =relop($1,$3,2);}    */    /*fprintf(yyout,"%s := %c < %d;\n ",reg[0],$1,$3); */;
+
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s < %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s < %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s < %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s < %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+			       }
+	| exp eq exp	       {
+
+					/*{$$ =relop($1,$3,3);} */       /*fprintf(yyout,"%s := %c eq %d;\n ",reg[0],$1,$3); */;
+					
+				 	
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s == %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s == %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s == %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s == %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+
+			       }
+	| exp ne exp	       {
+					 /*{$$ =relop($1,$3,4);}*/	       /*fprintf(yyout,"%s := %c neq %d;\n ",reg[0],$1,$3); */;
+					
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s != %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s != %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s != %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s != %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+			       }
+	| exp ge exp	       {
+					 /*{$$ =relop($1,$3,5);}	*/       /*fprintf(yyout,"%s := %c ge %d;\n ",reg[0],$1,$3); */;
+
+				 	
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s >= %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s >= %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s >= %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s >= %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+			       }
+	| exp le exp	       {
+
+					/*{$$ =relop($1,$3,6);}*/        /*fprintf(yyout,"%s := %c le %d;\n ",reg[0],$1,$3); */;
+
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s <= %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s <= %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s <= %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s <= %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+                               }
+	| '(' exp ')'	       {
+					 /*{$$ = $2;}*/                   /*fprintf(yyout,"%s := %d;\n ",reg[0],$2); */;
+					temp_variable_count+=1;
+					if($2.singleton==1)
+					{
+						sprintf($$.code,"\nt%d := %s\n",temp_variable_count,$2.var);					
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+						sprintf($$.code,"%s\nt%d := %s\n",$2.code,temp_variable_count,$2.var);					
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;					
+			       }
+	| exp and exp	       {
+					 /*{$$ =relop($1,$3,7);}*/        /*fprintf(yyout,"%s := %c and %d;\n ",reg[0],$1,$3);*/ ;
+
+				 	
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s && %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s && %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s && %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s && %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+			       }
+	| exp or exp	       {
+					/* {$$ =relop($1,$3,8);}*/        /*fprintf(yyout,"%s := %c or %d;\n ",reg[0],$1,$3);*/ ;
+
+					if($1.singleton==1 && $3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"\nt%d := %s || %s\n",temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if ($1.singleton ==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s || %s\n",$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+
+					}
+					else if($3.singleton==1)
+					{
+						
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\nt%d := %s || %s\n",$1.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					else
+					{
+				 		temp_variable_count+=1;
+						sprintf($$.code,"%s\n%s\nt%d := %s || %s\n",$1.code,$3.code,temp_variable_count,$1.var,$3.var);
+						sprintf($$.var,"t%d",temp_variable_count);
+					}
+					$$.singleton = 0;
+
+
+			       }
 	;
 
 
 		/*<------------- TERMS ----------> */
-term   	: num                {$$ = $1;}
-	|id			{$$=getid($1);}
+term   	: num                {strcpy($$,$1); }
+	|id		     {strcpy($$,$1); }
 ;
 
 		/* <------- FUNCTION NAME IDENTIFIER ----------> */
@@ -826,7 +1400,7 @@ int main()
 		strcpy(function_table[i].name,"");
 	}
 
-	yyout = fopen("output.txt","a");
+	yyout = fopen("output.txt","w");
 	
 	/* if(yyout==NULL)
 	{
