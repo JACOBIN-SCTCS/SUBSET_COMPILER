@@ -39,7 +39,7 @@
 ","                                 {   return comma;   }
 [0-9]+				    {	
 
-					yylval.no=atoi(yytext) ; 
+					strcpy(yylval.var,yytext) ; 
 					return num;
 	                            }
 [a-z]([a-z]|[0-9])*		    {	

@@ -41,8 +41,14 @@
 | Program | Intermediate Code   |  
 | ------------- | ------------- |
 | print 5; <br> exit; | t1 := 5;<br> print t1; |  
+| print ((5+2)*8); <br> exit; | t1 := 5 + 2 <br> t2 := t1 <br> t3 := t2 * 8 <br> t4 := t3 <br> R1 := t4; <br> print R1; |
+| def samplefunction(t,y) <br> { <br> a = 5; <br> } <br> y=4; <br> d=3; <br> samplefunction(y,d); <br> exit; | PROCEDURE samplefunction  t,y <br> R1 := 5; <br> a := R1; <br> ENDP <br> R1 := 4; <br> y := R1; <br> R1 := 3; <br> d := R1; <br> samplefunction(y,d) |
+| def samplefunction(t,y) <br> { <br> a=1; <br> if(a<4) <br> { <br> a = a + 1 ; <br> } <br> } <br> samplefunction(y,d); <br> exit; | PROCEDURE samplefunction  t,y <br> R1 := 1; <br> a := R1; <br> t1 := a < 4 <br> R1 := t1 <br> IF NZ GO TO 0LABEL: <br> t2 := a + 1 <br> R1 := t2; <br> a := R1; <br> 0LABEL: <br> ENDP <br> samplefunction(y,d) | 
+| a=1; <br> while(a<5) <br> { <br> a=a+1; <br> } <br> exit; | R1 := 1; <br> a := R1; <br> 0_LABEL : <br> t1 := a < 5 <br> R1 := t1 <br> IF NZ GOTO 1_LABEL <br> t2 := a + 1 <br> R1 := t2; <br> a := R1; <br> JMP 0_LABEL <br> 1_LABEL: |
+| ans=1; <br> i=5; <br> while(i > 0) <br> { <br> ans = ans * i; <br> i = i - 1; <br> } <br> print ans; <br> exit; | R1 := 1; <br> ans := R1; <br> R1 := 5; <br> i := R1; <br> 0_LABEL :  <br> t1 := i > 0 <br> R1 := t1 <br> IF NZ GOTO 1_LABEL <br> t2 := ans * i <br> R1 := t2; <br> ans := R1; <br> t3 := i - 1 <br> R1 := t3; <br> i := R1; <br> JMP 0_LABEL <br> 1_LABEL: <br> R1 := ans; <br> print R1; |  
+| ans=1; <br> i=5; <br> do <br> { <br> ans = ans * i; <br> i = i - 1; <br> } <br> while(i > 0); <br> print ans;| R1 := 1; <br> ans := R1; <br> R1 := 5; <br> i := R1; <br> 0_LABEL: <br> t1 := ans * i <br> R1 := t1; <br> ans := R1; <br> t2 := i - 1 <br> R1 := t2; <br> i := R1; <br> t3 := i > 0 <br> R1 := t3 <br> if nz goto 0_LABEL <br> R1 := ans; <br> print R1; | 
 
-> More Code Portions coming Soon <br>
+
     
   
 ## Documentation 
